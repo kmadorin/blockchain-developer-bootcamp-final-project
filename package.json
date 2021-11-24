@@ -1,0 +1,37 @@
+{
+  "name": "blockchain-developer-bootcamp-final-project",
+  "version": "1.0.0",
+  "description": "",
+  "main": "truffle-config.js",
+  "directories": {
+    "tests": "test"
+  },
+  "scripts": {
+    "test": "truffle test ./test/inchi.test.js --network development",
+    "ganache:fork": "node ./test/utils/test-chain.js",
+    "migrate": "truffle migrate --reset --network test",
+    "migrate-and-test": "npm run migrate && npm test"
+  },
+  "mocha": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kmadorin/blockchain-developer-bootcamp-final-project.git"
+  },
+  "author": "Kirill Madorin",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kmadorin/blockchain-developer-bootcamp-final-project/issues"
+  },
+  "homepage": "https://github.com/kmadorin/blockchain-developer-bootcamp-final-project#readme",
+  "devDependencies": {
+    "ganache-cli": "^6.12.2",
+    "ganache-core": "^2.13.2",
+    "jest": "^27.3.1",
+    "truffle": "^5.4.22"
+  },
+  "dependencies": {
+    "@truffle/hdwallet-provider": "^1.7.0",
+    "dotenv": "^10.0.0",
+    "web3": "^1.6.1"
+  }
+}
