@@ -1,0 +1,194 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "ILimitOrderProtocol",
+  "sourceName": "contracts/interfaces/ILimitOrderProtocol.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "salt",
+              "type": "uint256"
+            },
+            {
+              "internalType": "address",
+              "name": "makerAsset",
+              "type": "address"
+            },
+            {
+              "internalType": "address",
+              "name": "takerAsset",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "makerAssetData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "takerAssetData",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "getMakerAmount",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "getTakerAmount",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "predicate",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "permit",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "interaction",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct ILimitOrderProtocol.Order",
+          "name": "order",
+          "type": "tuple"
+        },
+        {
+          "internalType": "bytes",
+          "name": "signature",
+          "type": "bytes"
+        },
+        {
+          "internalType": "uint256",
+          "name": "makingAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "takingAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "thresholdAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "fillOrder",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "orderMakerAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "orderTakerAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "swapTakerAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "getMakerAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "orderMakerAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "orderTakerAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "swapMakerAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "getTakerAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "target",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes",
+          "name": "data",
+          "type": "bytes"
+        }
+      ],
+      "name": "lt",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

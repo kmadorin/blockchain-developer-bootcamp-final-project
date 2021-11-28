@@ -6,13 +6,15 @@ const PORT = 8545;
 
 const Web3 = require("web3");
 
+const aaveOracleOwner = "0xee56e2b3d491590b5b31738cc34d5232f378a8d5"
+
 // fork off mainnet with a specific account preloaded with 1000 ETH
 const server = ganache.server({
 	port: PORT,
 	fork: `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`,
 	network_id: 1,
 	mnemonic: process.env.MNEMONIC,
-	unlockedAccounts: ['0x9e0f0d83dD880240e3506A7Ac4CE82500b2bD92B'],
+	unlocked_accounts: [aaveOracleOwner],
 });
 
 server.listen(PORT, async (err, chain) => {

@@ -1,0 +1,44 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "InteractiveMaker",
+  "sourceName": "contracts/interfaces/InteractiveMaker.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "makerAsset",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "takerAsset",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "makingAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "takingAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes",
+          "name": "interactiveData",
+          "type": "bytes"
+        }
+      ],
+      "name": "notifyFillOrder",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}
