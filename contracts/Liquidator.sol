@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./helpers/AaveBase.sol";
 import "./helpers/LimitOrderProtocolBase.sol";
 import "./interfaces/ILendingPoolAddressesProvider.sol";
@@ -11,26 +12,24 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
     using ArgumentsDecoder for bytes;
     using SafeMath for uint256;
 
-    uint256 constant private _FROM_INDEX = 0;
-    uint256 constant private _TO_INDEX = 1;
-    uint256 constant private _AMOUNT_INDEX = 2;
+    struct Order {
+        uint256 salt;
+        address makerAsset;
+        address takerAsset;
+        bytes makerAssetData; // (transferFrom.selector, signer, ______, makerAmount, ...)
+        bytes takerAssetData; // (transferFrom.selector, sender, signer, takerAmount, ...)
+        bytes getMakerAmount; // this.staticcall(abi.encodePacked(bytes, swapTakerAmount)) => (swapMakerAmount)
+        bytes getTakerAmount; // this.staticcall(abi.encodePacked(bytes, swapMakerAmount)) => (swapTakerAmount)
+        bytes predicate;      // this.staticcall(bytes) => (bool)
+        bytes permit;         // On first fill: permit.1.call(abi.encodePacked(permit.selector, permit.2))
+        bytes interaction;
+    }
+
+    mapping(address => Order[]) public orders;
+    uint256 public fee;
 
     constructor(address limitOrderProtocol, ILendingPoolAddressesProvider _lendingPoolAddressProvider)
     LimitOrderProtocolBase(limitOrderProtocol) AaveBase(_lendingPoolAddressProvider) {}
-
-    function getUserAccountData(address _user)
-    external
-    view
-    returns (
-        uint256 totalCollateralETH,
-        uint256 totalDebtETH,
-        uint256 availableBorrowsETH,
-        uint256 currentLiquidationThreshold,
-        uint256 ltv,
-        uint256 healthFactor
-    ) {
-        (totalCollateralETH, totalDebtETH, availableBorrowsETH, currentLiquidationThreshold, ltv, healthFactor) = LENDING_POOL.getUserAccountData(_user);
-    }
 
     function isHFBelowThreshold(address _user, uint256 _threshold) external view returns(bool) {
         uint256 _healthFactor;
@@ -42,6 +41,10 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
         uint256 _healthFactor;
         (, , , , , _healthFactor) = LENDING_POOL.getUserAccountData(_user);
         return _healthFactor;
+    }
+
+    function setFee(uint256 _newFee) public onlyOwner{
+        fee = _newFee;
     }
 
 
@@ -76,7 +79,16 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
 
         (collateral, reserve, user, purchaseAmount, receiveaToken) = abi.decode(interactiveData, (address, address, address, uint256, bool));
         _liquidate(collateral, reserve, user, purchaseAmount, receiveaToken);
+        // TODO: remove from a list of user's orders
+        // deleteOrder(user)
+
+        // approve makingAmount to send to maker
         IERC20(makerAsset).approve(msg.sender, makingAmount);
+
+        // Check if liquidation profit is higher than makingAmount + gas cost
+
+        // Calculate the the remainder and send it to a user
+        // TODO: include fee
     }
 
     function isValidSignature(bytes32 hash, bytes memory signature) external override view returns(bytes4) {
@@ -105,7 +117,6 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
         }
 
         require(
-            makerAssetData.decodeAddress(_FROM_INDEX) == address(this) &&
             _hash(salt, makerAsset, takerAsset, makerAssetData, takerAssetData, getMakerAmount, getTakerAmount, predicate, permit, interaction) == hash,
             "bad order"
         );

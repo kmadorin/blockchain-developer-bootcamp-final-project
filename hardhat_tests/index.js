@@ -20,6 +20,7 @@ const { buildOrderData, ABIOrder } = require('./helpers/orderUtils');
 const { cutLastArg, toBN } = require('./helpers/utils');
 const { web3 } = require('@openzeppelin/test-helpers/src/setup');
 
+
 contract('Inchi', async function ([_, wallet]) {
   const aaveLendingPoolAddressProvider = '0xB53C1a33016B2DC2fF3653530bfF1848a515c8c5';
   const aaveOracle = '0xA50ba011c48153De246E5192C8f9258A2ba79Ca9';
@@ -124,7 +125,21 @@ contract('Inchi', async function ([_, wallet]) {
     this.chainId = await this.usdc.getChainId()
   });
 
-  describe('Liquidator', function () {
+  describe('setFee()', function() {
+    it('should set fee by the owner', async function() {
+      // try to set 10% fee
+      const newFee = WAD.div(10);
+      await this.liquidator.setFee(WAD.div(10));
+      expect(await this.liquidator.fee()).to.be.bignumber.equal(newFee);
+    });
+
+    it('should revert when setting fee not by the owner', async function() {
+      const newFee = WAD.div(10);
+      await expectRevert(this.liquidator.setFee(newFee, {from: wallet}), 'Only owner');
+    });
+  });
+
+  describe('fill order', function () {
     it('should liquidate unhealthy position on order fill', async function() {
       // deposit 2 WETH to Aaave
       await this.weth.deposit({from: wallet, value: ether('2')});
@@ -164,18 +179,20 @@ contract('Inchi', async function ([_, wallet]) {
       const collateralAmount = purchaseAmount.mul(newAssetPriceInEth).div(WAD).muln(101).divn(100);
       console.log(`###: collateralAmount`, collateralAmount.toString());
 
-      const hfCall = this.liquidator.contract.methods.getHealthFactor(wallet).encodeABI();
-      const predicate = this.swap.contract.methods.lt(ether('1'), this.liquidator.address, hfCall).encodeABI();
+      // const hfCall = this.liquidator.contract.methods.getHealthFactor(wallet).encodeABI();
+      const isHFBelowThresholdCall = this.liquidator.contract.methods.getHealthFactor(wallet).encodeABI();
+      const predicate = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address, isHFBelowThresholdCall).encodeABI();
+      
       // TODO: implement getTakerAmount and getMakerAmount to get debtToCover on fill including interest
       const order = buildOrder(this.swap, this.weth, this.dai, collateralAmount, purchaseAmount, this.liquidator.address, zeroAddress, predicate);
       order.interaction = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'uint256', 'bool'], [this.weth.address, this.dai.address, wallet, purchaseAmount, false]);
 
-      // const data = buildOrderData(this.chainId, this.swap.address, order);
-      // const orderHash = bufferToHex(ethSigUtil.TypedDataUtils.sign(data));
       const signature = web3.eth.abi.encodeParameter(ABIOrder, order);
 
       //approve takerAmount by taker
       await this.dai.approve(this.swap.address, purchaseAmount, {from: wallet});
+
+      // try to fill the order
       try {
         // fill order
         const receipt = await this.swap.fillOrder(order, signature, collateralAmount, 0, purchaseAmount, {from: wallet});
@@ -191,6 +208,43 @@ contract('Inchi', async function ([_, wallet]) {
       console.log(`###: userDataAfterLiquidation`, userDataAfterLiquidation);
 
       return true;
+    });
+
+    it('should revert on filling the order with a healthy position', async function() {
+      // deposit 2 WETH to Aaave
+      await this.weth.deposit({from: wallet, value: ether('2')});
+      await this.weth.approve(this.lendingPool._address, ether('2'), {from: wallet});
+      await this.lendingPool.methods.deposit(ASSET_ADDRESSES.WETH, ether('2'), wallet, 0).send({from: wallet});
+
+      // borrow maximum available amount of DAI
+      const userData = await this.lendingPool.methods.getUserAccountData(wallet).call();
+
+      const assetPriceInEth = await this.aaveOracle.methods.getAssetPrice(this.dai.address).call();
+      //borrow half of a availableBorrows in DAI
+      const amountToBorrow = (new BN(userData.availableBorrowsETH)).mul(WAD).div(toBN(2)).div((new BN(assetPriceInEth)));
+      await this.lendingPool.methods.borrow(this.dai.address, amountToBorrow, 2, 0, wallet).send({from: wallet});
+
+
+      // create 1inch limit order that will liquidate this loan on fill
+      // makerAmount = 50% of collateral
+      // takerAmount = 50% of debt
+      // predicate = health factor below 1
+      // signature = order itself, isValidSignature will check if hash(order params in signature) is the same as order hash
+
+      const isHFBelowThresholdCall = this.liquidator.contract.methods.getHealthFactor(wallet).encodeABI();
+      const predicate = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address, isHFBelowThresholdCall).encodeABI();
+      
+      const order = buildOrder(this.swap, this.weth, this.dai, collateralAmount, purchaseAmount, this.liquidator.address, zeroAddress, predicate);
+      order.interaction = web3.eth.abi.encodeParameters(['address', 'address', 'address', 'uint256', 'bool'], [this.weth.address, this.dai.address, wallet, purchaseAmount, false]);
+
+      const signature = web3.eth.abi.encodeParameter(ABIOrder, order);
+
+      //approve takerAmount by taker
+      await this.dai.approve(this.swap.address, purchaseAmount, {from: wallet});
+
+      await expectRevert(
+        await this.swap.fillOrder(order, signature, collateralAmount, 0, purchaseAmount, {from: wallet}),
+        'LOP: predicate returned false');
     });
 
   });

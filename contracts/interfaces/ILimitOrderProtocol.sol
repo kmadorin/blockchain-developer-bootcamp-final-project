@@ -30,4 +30,8 @@ interface ILimitOrderProtocol {
 
     function fillOrder(Order memory order, bytes calldata signature, uint256 makingAmount, uint256 takingAmount, uint256 thresholdAmount) external returns(uint256, uint256);
     function lt(uint256 value, address target, bytes memory data) external view returns(bool);
+
+    /// @notice Performs an arbitrary call to target with data
+    /// @return Result bytes transmuted to uint256
+    function arbitraryStaticCall(address target, bytes memory data) external view returns(uint256);
 }

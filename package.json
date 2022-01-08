@@ -30,6 +30,7 @@
     "@nomiclabs/hardhat-web3": "^2.0.0",
     "@openzeppelin/test-helpers": "^0.5.15",
     "chai": "^4.3.4",
+    "ethereumjs-wallet": "^1.0.2",
     "ganache-cli": "^6.12.2",
     "ganache-core": "^2.13.2",
     "hardhat": "^2.6.8",

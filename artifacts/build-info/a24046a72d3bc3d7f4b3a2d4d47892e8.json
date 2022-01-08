@@ -1016,7 +1016,7 @@
                                 "name": "block",
                                 "nodeType": "Identifier",
                                 "overloadedDeclarations": [],
-                                "referencedDeclaration": -4,
+                                "referencedDeclaration": 4294967292,
                                 "src": "344:5:0",
                                 "typeDescriptions": {
                                   "typeIdentifier": "t_magic_block",
@@ -1387,7 +1387,7 @@
                                 "name": "block",
                                 "nodeType": "Identifier",
                                 "overloadedDeclarations": [],
-                                "referencedDeclaration": -4,
+                                "referencedDeclaration": 4294967292,
                                 "src": "691:5:0",
                                 "typeDescriptions": {
                                   "typeIdentifier": "t_magic_block",

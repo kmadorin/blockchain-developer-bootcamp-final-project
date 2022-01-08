@@ -1213,7 +1213,7 @@
                               "name": "block",
                               "nodeType": "Identifier",
                               "overloadedDeclarations": [],
-                              "referencedDeclaration": -4,
+                              "referencedDeclaration": 4294967292,
                               "src": "512:5:1",
                               "typeDescriptions": {
                                 "typeIdentifier": "t_magic_block",
