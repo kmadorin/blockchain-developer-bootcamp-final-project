@@ -5,6 +5,19 @@
   "abi": [
     {
       "inputs": [],
+      "name": "AAVE_ORACLE",
+      "outputs": [
+        {
+          "internalType": "contract IPriceOracleGetter",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "ADDRESSES_PROVIDER",
       "outputs": [
         {

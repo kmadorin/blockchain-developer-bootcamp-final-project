@@ -1,5 +1,5 @@
 require('@nomiclabs/hardhat-truffle5');
-require('hardhat-deploy');
+// require('hardhat-deploy');
 require('hardhat-gas-reporter');
 require('dotenv').config();
 
@@ -31,16 +31,24 @@ module.exports = {
 			  (you can put in a mnemonic here to set the deployer locally)
 			*/
 		},
+		// hardhat: {
+		// 	forking: {
+		// 		url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
+		// 		// blockNumber: 13679712,
+		// 	},
+		// },
+		polygon: {
+			url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
+		},
 		hardhat: {
 			forking: {
-				url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
-				blockNumber: 13679712,
-			},
-		},
+				url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
+			}
+		}
 	},
 	paths: {
 		tests: './hardhat_tests',
-		sources: './contracts',
+		sources: './contracts/**',
 		artifacts: './artifacts',
 	},
 	mocha: {

@@ -11,6 +11,8 @@
     "test": "hardhat test",
     "test:truffle": "truffle test ./test/inchi.test.js --network development",
     "ganache:fork": "node ./test/utils/test-chain.js",
+    "hardhat:fork": "hardhat node --network hardhat",
+    "prepare-env": "node ./scripts/prepare_environment.js",
     "migrate": "truffle migrate --reset --network test",
     "migrate-and-test": "npm run migrate && npm test"
   },
@@ -26,23 +28,29 @@
   },
   "homepage": "https://github.com/kmadorin/blockchain-developer-bootcamp-final-project#readme",
   "devDependencies": {
+    "@aave/protocol-js": "^2.7.2",
     "@nomiclabs/hardhat-truffle5": "^2.0.2",
     "@nomiclabs/hardhat-web3": "^2.0.0",
     "@openzeppelin/test-helpers": "^0.5.15",
     "chai": "^4.3.4",
     "ethereumjs-wallet": "^1.0.2",
+    "ethers": "^5.4.7",
     "ganache-cli": "^6.12.2",
     "ganache-core": "^2.13.2",
     "hardhat": "^2.6.8",
     "hardhat-deploy": "^0.9.10",
     "hardhat-gas-reporter": "^1.0.4",
+    "isomorphic-fetch": "^3.0.0",
     "jest": "^27.3.1",
     "truffle": "^5.4.22"
   },
   "dependencies": {
     "@aave/protocol-v2": "^1.0.1",
-    "@openzeppelin/contracts": "^4.3.3",
+    "@openzeppelin/contracts": "^4.4.2",
     "@truffle/hdwallet-provider": "^1.7.0",
+    "@uniswap/sdk": "^3.0.3",
+    "axios": "^0.25.0",
+    "chalk": "^3.0.0",
     "dotenv": "^10.0.0",
     "web3": "^1.6.1"
   }
