@@ -4,14 +4,21 @@ const OrderRFQ = [
     { name: 'info', type: 'uint256' },
     { name: 'makerAsset', type: 'address' },
     { name: 'takerAsset', type: 'address' },
-    { name: 'makerAssetData', type: 'bytes' },
-    { name: 'takerAssetData', type: 'bytes' },
+    { name: 'maker', type: 'address' },
+    { name: 'allowedSender', type: 'address' },
+    { name: 'makingAmount', type: 'uint256' },
+    { name: 'takingAmount', type: 'uint256' },
 ];
 
 const Order = [
     { name: 'salt', type: 'uint256' },
     { name: 'makerAsset', type: 'address' },
     { name: 'takerAsset', type: 'address' },
+    { name: 'maker', type: 'address' },
+    { name: 'receiver', type: 'address' },
+    { name: 'allowedSender', type: 'address' },
+    { name: 'makingAmount', type: 'uint256' },
+    { name: 'takingAmount', type: 'uint256' },
     { name: 'makerAssetData', type: 'bytes' },
     { name: 'takerAssetData', type: 'bytes' },
     { name: 'getMakerAmount', type: 'bytes' },
@@ -21,6 +28,9 @@ const Order = [
     { name: 'interaction', type: 'bytes' },
 ];
 
+const name = '1inch Limit Order Protocol';
+const version = '2';
+
 const ABIOrder = {
     'Order' : Order.reduce((obj, item) => {
         obj[item.name] = item.type;
@@ -28,8 +38,6 @@ const ABIOrder = {
     }, {}),
 };
 
-const name = '1inch Limit Order Protocol';
-const version = '1';
 
 function buildOrderData (chainId, verifyingContract, order) {
     return {
@@ -52,7 +60,7 @@ function buildOrderRFQData (chainId, verifyingContract, order) {
 module.exports = {
     buildOrderData,
     buildOrderRFQData,
-    ABIOrder,
     name,
     version,
+    ABIOrder
 };

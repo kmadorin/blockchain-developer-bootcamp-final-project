@@ -2,6 +2,7 @@
 const {ether, expectRevert, BN} = require('@openzeppelin/test-helpers');
 const {expect} = require('chai');
 const axios = require('axios');
+require('dotenv').config();
 
 const hre = require('hardhat');
 
@@ -26,7 +27,11 @@ const {web3} = require('@openzeppelin/test-helpers/src/setup');
 const {fetchV2UnhealthyLoans, getUserSummary, getRawReservesData, getUserReservesData} = require('./utils/aaveUtils');
 
 
-contract('Inchi', async function ([_, wallet]) {
+contract('Inchi', async function ([wallet, _]) {
+	const privateKey = process.env.POLYGON_PRIVATE_KEY;
+	const contractOwner = web3.eth.accounts.privateKeyToAccount(privateKey);
+	const contractOwnerAddress = contractOwner.address;
+
 	const CONTRACTS_ADDRESSES = {
 		mainnet: {
 			aaveProtocolDataProviderAddress: '0x057835Ad21a177dbdd3090bB1CAE03EaCF78Fc6d',
@@ -42,6 +47,8 @@ contract('Inchi', async function ([_, wallet]) {
 			aaveOracle: '0x0229f777b0fab107f9591a41d5f02e4e98db6f2d',
 			aaveOracleOwner: '0xdc9A35B16DB4e126cFeDC41322b3a36454B1F772',
 			limitOrderProtocolAddress: '0x3ef51736315F52d568D6D2cf289419b9CfffE782',
+			limitOrderProtocolAddressV2: '0x94Bc2a1C732BcAd7343B25af48385Fe76E08734f',
+			Liquidator: '0x3890EB1F4928C8C0aB05d474b08f78950d25Ce45',
 		}
 	}
 
@@ -74,27 +81,16 @@ contract('Inchi', async function ([_, wallet]) {
 		exchange,
 		makerAsset,
 		takerAsset,
-		makerAmount,
-		takerAmount,
-		maker = zeroAddress,
-		taker = zeroAddress,
+		makingAmount,
+		takingAmount,
+		maker,
+		allowedSender = zeroAddress,
 		predicate = '0x',
 		permit = '0x',
 		interaction = '0x',
+		receiver = zeroAddress,
 	) {
-		return buildOrderWithSalt(
-			exchange,
-			'1',
-			makerAsset,
-			takerAsset,
-			makerAmount,
-			takerAmount,
-			maker,
-			taker,
-			predicate,
-			permit,
-			interaction,
-		);
+		return buildOrderWithSalt(exchange, '1', makerAsset, takerAsset, makingAmount, takingAmount, maker, allowedSender, predicate, permit, interaction, receiver);
 	}
 
 	function buildOrderWithSalt(
@@ -102,34 +98,28 @@ contract('Inchi', async function ([_, wallet]) {
 		salt,
 		makerAsset,
 		takerAsset,
-		makerAmount,
-		takerAmount,
-		maker = zeroAddress,
-		taker = zeroAddress,
+		makingAmount,
+		takingAmount,
+		maker,
+		allowedSender = zeroAddress,
 		predicate = '0x',
 		permit = '0x',
 		interaction = '0x',
+		receiver = zeroAddress,
 	) {
 		return {
 			salt: salt,
 			makerAsset: makerAsset.address,
 			takerAsset: takerAsset.address,
-			makerAssetData: makerAsset.contract.methods
-				.transferFrom(maker, taker, makerAmount)
-				.encodeABI(),
-			takerAssetData: takerAsset.contract.methods
-				.transferFrom(taker, maker, takerAmount)
-				.encodeABI(),
-			getMakerAmount: cutLastArg(
-				exchange.contract.methods
-					.getMakerAmount(makerAmount, takerAmount, 0)
-					.encodeABI(),
-			),
-			getTakerAmount: cutLastArg(
-				exchange.contract.methods
-					.getTakerAmount(makerAmount, takerAmount, 0)
-					.encodeABI(),
-			),
+			maker,
+			receiver,
+			allowedSender,
+			makingAmount,
+			takingAmount,
+			makerAssetData: '0x',
+			takerAssetData: '0x',
+			getMakerAmount: cutLastArg(exchange.contract.methods.getMakerAmount(makingAmount, takingAmount, 0).encodeABI()),
+			getTakerAmount: cutLastArg(exchange.contract.methods.getTakerAmount(makingAmount, takingAmount, 0).encodeABI()),
 			predicate: predicate,
 			permit: permit,
 			interaction: interaction,
@@ -138,9 +128,10 @@ contract('Inchi', async function ([_, wallet]) {
 
 	beforeEach(async function () {
 		// this.swap = await ILimitOrderProtocol.at(limitOrderProtocol);
-		this.swap = await LimitOrderProtocol.new();
-
-		this.liquidator = await Liquidator.new(this.swap.address, aaveLendingPoolAddressProvider, aaveOracle);
+		this.swap = await LimitOrderProtocol.at(CONTRACTS_ADDRESSES[network]['limitOrderProtocolAddressV2']);
+		// this.swap = await LimitOrderProtocol.new();
+		// this.liquidator = await Liquidator.new(this.swap.address, aaveLendingPoolAddressProvider, aaveOracle);
+		this.liquidator = await Liquidator.at(CONTRACTS_ADDRESSES[network]['Liquidator']);
 		this.MockAggregator = await MockAggregator.new('10000');
 
 		this.protocolDataProvider = await IProtocolDataProvider.at(aaveProtocolDataProviderAddress);
@@ -169,7 +160,7 @@ contract('Inchi', async function ([_, wallet]) {
 			//
 			// const rawReservesData = await getRawReservesData();
 
-			// const gasEstimate = 791559;
+			// const gasEstimate = 683485;
 			const gasEstimate = 91559;
 			const estimatedGasPrice = await web3.eth.getGasPrice();
 			const estimatedOrderFillPrice = (new BN(estimatedGasPrice)).mul(new BN(gasEstimate));
@@ -228,20 +219,21 @@ contract('Inchi', async function ([_, wallet]) {
 			// const loan = all_loans_sorted_by_debt[0];
 
 			const loan = {
-				userAddress: '0xfbf2f53966013f4d6223abbc0b640ddb49974f10',
-				healthFactor: '0.819620304635361346',
-				debtToCover: '32563',
+				userAddress: '0xede4d8b7b6d29fa5b6ee9b2b8f5f3eb92d24e09b',
+				healthFactor: '0.836972130457837487',
+				debtToCover: '78463',
 				debtTokenAddress: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
 				debtTokenDecimals: 6,
-				collateralAmount: '23495134539824028',
+				collateralAmount: '44398973538026309',
 				collateralTokenAddress: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
 				collateralTokenDecimals: 18,
-				collateralBonus: 11000,
-				liquidationBonus: '2349513453982402',
-				liquidationBonusETH: '1356781523272',
+				collateralBonus: 10800,
+				liquidationBonus: '4439897353802630',
+				liquidationBonusETH: '2791807456071',
 				collateralTokenSymbol: 'WMATIC',
 				debtTokenSymbol: 'USDC'
 			};
+
 
 			// const userData = await this.lendingPool.methods.getUserAccountData(loan.userAddress).call();
 			//
@@ -271,6 +263,9 @@ contract('Inchi', async function ([_, wallet]) {
 			const accountToImpersonate = accountsToImpersonate[network];
 
 			await hre.network.provider.send("hardhat_impersonateAccount", [accountToImpersonate]);
+			await hre.network.provider.send("hardhat_impersonateAccount", [contractOwnerAddress]);
+
+			await web3.eth.sendTransaction({to: contractOwnerAddress, from: wallet, value: ether('6')});
 
 			await web3.eth.sendTransaction({to: accountToImpersonate, from: wallet, value: ether('6')});
 
@@ -319,70 +314,86 @@ contract('Inchi', async function ([_, wallet]) {
 			const isHFBelowThreshold = await this.liquidator.isHFBelowThreshold(loan.userAddress, WAD);
 			console.log(`###: isHFBelowThreshold`, isHFBelowThreshold);
 			const predicate = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address, isHFBelowThresholdCall).encodeABI();
+
 			// const predicate = '0x';
-			const order = buildOrder(this.swap, collateralTokenContract, debtTokenContract, 0, 0, this.liquidator.address, zeroAddress, predicate);
-			// order.getMakerAmount = cutLastArg(this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, 0).encodeABI());
-			order.getMakerAmount = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address,
-				cutLastArg(this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI(), 56)).encodeABI();
-
-			const getMakerAmountCut2 = cutLastArg(this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address,
-				this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI()).encodeABI());
-			const getMakerAmountUncut = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address,
-				this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI()).encodeABI();
-
-			console.log(`###: `, order.getMakerAmount);
-			console.log(`###: `, getMakerAmountCut2);
-			console.log(`###: `, getMakerAmountUncut);
-			console.log(`###: `, this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI())
-			console.log(`###: `, cutLastArg(this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI()))
-			console.log(`###: `, cutLastArg(this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.collateralAmount, 77).encodeABI(), 56))
+			const order = buildOrder(this.swap, collateralTokenContract, debtTokenContract, loan.collateralAmount, loan.debtToCover, this.liquidator.address, zeroAddress, predicate);
+			order.getMakerAmount = cutLastArg(
+				this.swap.contract.methods.arbitraryStaticCall(
+					this.liquidator.address,
+					this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, 0).encodeABI()
+				).encodeABI(),
+				56
+			);
 
 			order.getTakerAmount = '0x';
-			order.interaction = web3.eth.abi.encodeParameters(['address'], [loan.userAddress]);
+
+			order.interaction = this.liquidator.address + loan.userAddress.slice(2);
 
 			const signature = web3.eth.abi.encodeParameter(ABIOrder, order);
+			const orderHash = await this.swap.hashOrder(order);
 
-			//approve takerAmount by taker
-			await debtTokenContract.approve(this.swap.address, loan.debtToCover, {from: wallet});
-			const ethBalanceBefore = await web3.eth.getBalance(wallet);
-			console.log(`###: ethBalanceBefore`, ethBalanceBefore);
-			const balanceBefore = await collateralTokenContract.balanceOf(wallet);
-			console.log(`###: balanceBefore`, balanceBefore.toString());
-			await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address);
-			await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address);
-
-
-			// const estimatedGasUsed = await this.swap.contract.methods.fillOrder(order, signature, collateralAmount, 0, debtToCover).estimateGas({from: wallet});
-			// const estimatedGasPrice = await web3.eth.getGasPrice();
-			// console.log(`###: estimatedGasPrice`, estimatedGasPrice.toString())
-			// const estimatedLiquidationPrice = (new BN(estimatedGasPrice)).mul(new BN(estimatedGasUsed));
-			// console.log('###: estimatedLiquidationPrice:', web3.utils.fromWei(estimatedLiquidationPrice.toString(), 'ether'));
-
-			// try to fill the order
-			try {
-				// fill order
-				// const receipt = await this.swap.fillOrder(order, signature, 0, debtToCover, debtToCover, {from: wallet, gasPrice: web3.utils.toWei('168', 'gwei')});
-				const receipt = await this.swap.fillOrder(order, signature, 0, loan.debtToCover, new BN(loan.collateralAmount).divn(2), {
-					from: wallet,
-					gasPrice: estimatedGasPrice
-				});
-				const gasUsed = receipt.receipt.gasUsed;
-				console.log(`###: receipt.receipt.gasUsed`, gasUsed);
-				const tx = await web3.eth.getTransaction(receipt.tx);
-				const gasPrice = tx.gasPrice;
-				console.log(`###: gasPrice`, gasPrice);
-				console.log('###: txPrice:', web3.utils.fromWei((new BN(gasPrice)).mul(new BN(gasUsed)).toString(), 'ether'));
-			} catch (e) {
-				console.log(e);
+			console.log(`###: orderHash`, orderHash);
+			const orderToSend = {
+				orderHash,
+				signature,
+				data: {
+					makerAsset: order.makerAsset,
+					takerAsset: order.takerAsset,
+					maker: order.maker,
+					allowedSender: order.allowedSender,
+					receiver: order.receiver,
+					makingAmount: order.makingAmount,
+					takingAmount: order.takingAmount,
+					makerAssetData: order.makerAssetData,
+					takerAssetData: order.takerAssetData,
+					getMakerAmount: order.getMakerAmount,
+					getTakerAmount: order.getTakerAmount,
+					salt: order.salt,
+					predicate: order.predicate,
+					permit: order.permit,
+					interaction: order.interaction
+				}
 			}
 
-			const balanceAfter = await collateralTokenContract.balanceOf(wallet);
-			console.log(`###: balanceAfter`, balanceAfter.toString());
-			const liquidationBonus = await collateralTokenContract.balanceOf(this.liquidator.address);
-			console.log(`###: liquidationBonus`, liquidationBonus.toString());
-			const ethBalanceAfter = await web3.eth.getBalance(wallet);
-			console.log(`###: ethBalanceAfter`, ethBalanceAfter);
-			console.log(`###: ethDelta`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
+			console.log(`###: orderToSend`, JSON.stringify(orderToSend, null, 2));
+
+
+			// //approve takerAmount by taker
+			// await debtTokenContract.approve(this.swap.address, loan.debtToCover, {from: wallet});
+			// const ethBalanceBefore = await web3.eth.getBalance(wallet);
+			// console.log(`###: ethBalanceBefore`, ethBalanceBefore);
+			// const balanceBefore = await collateralTokenContract.balanceOf(wallet);
+			// console.log(`###: balanceBefore`, balanceBefore.toString());
+			// await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: contractOwnerAddress});
+			// await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: contractOwnerAddress});
+			// // await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: wallet});
+			// // await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: wallet});
+			//
+			// // try to fill the order
+			// try {
+			// 	// fill order
+			// 	// const receipt = await this.swap.fillOrder(order, signature, 0, debtToCover, debtToCover, {from: wallet, gasPrice: web3.utils.toWei('168', 'gwei')});
+			// 	const receipt = await this.swap.fillOrder(order, signature, 0, loan.debtToCover, 1000, {
+			// 		from: wallet,
+			// 		gasPrice: estimatedGasPrice
+			// 	});
+			// 	const gasUsed = receipt.receipt.gasUsed;
+			// 	console.log(`###: receipt.receipt.gasUsed`, gasUsed);
+			// 	const tx = await web3.eth.getTransaction(receipt.tx);
+			// 	const gasPrice = tx.gasPrice;
+			// 	console.log(`###: gasPrice`, gasPrice);
+			// 	console.log('###: txPrice:', web3.utils.fromWei((new BN(gasPrice)).mul(new BN(gasUsed)).toString(), 'ether'));
+			// } catch (e) {
+			// 	console.log(e);
+			// }
+			//
+			// const balanceAfter = await collateralTokenContract.balanceOf(wallet);
+			// console.log(`###: balanceAfter`, balanceAfter.toString());
+			// const liquidationBonus = await collateralTokenContract.balanceOf(this.liquidator.address);
+			// console.log(`###: liquidationBonus`, liquidationBonus.toString());
+			// const ethBalanceAfter = await web3.eth.getBalance(wallet);
+			// console.log(`###: ethBalanceAfter`, ethBalanceAfter);
+			// console.log(`###: ethDelta`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
 
 			return true;
 		});

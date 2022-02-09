@@ -15,20 +15,6 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
     using ArgumentsDecoder for bytes;
     using SafeMath for uint256;
 
-    struct Order {
-        uint256 salt;
-        address makerAsset;
-        address takerAsset;
-        bytes makerAssetData; // (transferFrom.selector, signer, ______, makerAmount, ...)
-        bytes takerAssetData; // (transferFrom.selector, sender, signer, takerAmount, ...)
-        bytes getMakerAmount; // this.staticcall(abi.encodePacked(bytes, swapTakerAmount)) => (swapMakerAmount)
-        bytes getTakerAmount; // this.staticcall(abi.encodePacked(bytes, swapMakerAmount)) => (swapTakerAmount)
-        bytes predicate;      // this.staticcall(bytes) => (bool)
-        bytes permit;         // On first fill: permit.1.call(abi.encodePacked(permit.selector, permit.2))
-        bytes interaction;
-    }
-
-    mapping(address => Order[]) public orders;
     uint256 public fee;
 
     constructor(address limitOrderProtocol, ILendingPoolAddressesProvider _lendingPoolAddressProvider, IPriceOracleGetter _aaveOracleAddress)
@@ -68,22 +54,27 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
     }
 
     function notifyFillOrder(
+        address /* taker */,
         address makerAsset,
         address takerAsset,
         uint256 makingAmount,
         uint256 takingAmount,
-        bytes memory interactiveData // abi.encode(orderHash)
+        bytes calldata interactiveData // abi.encode(orderHash)
     ) external override {
         require(msg.sender == LIMIT_ORDER_PROTOCOL, "only LOP can exec callback");
         makerAsset;
         takingAmount;
-        address user;
 
-        (user) = abi.decode(interactiveData, (address));
+        address userAddress;
+
+        assembly {
+            userAddress := shr(96, calldataload(interactiveData.offset))
+        }
+
         //        uint256 contractBalanceBefore = IERC20(makerAsset).balanceOf(address(this));
         //        console.log(contractBalanceBefore);
         //        uint256 startGas = gasleft();
-        _liquidate(makerAsset, takerAsset, user, takingAmount, false);
+        _liquidate(makerAsset, takerAsset, userAddress, takingAmount, false);
         //        uint256 gasUsed = startGas - gasleft();
         //        console.log('gasUsed', gasUsed);
 
@@ -118,9 +109,8 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
     }
 
     function isValidSignature(bytes32 hash, bytes memory signature) external override view returns (bytes4) {
-        uint256 salt;
-        address makerAsset;
-        address takerAsset;
+        StaticOrder memory staticOrder = readStaticOrder(signature);
+
         bytes memory makerAssetData;
         bytes memory takerAssetData;
         bytes memory _getMakerAmount;
@@ -130,54 +120,130 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
         bytes memory interaction;
 
         assembly {// solhint-disable-line no-inline-assembly
-            salt := mload(add(signature, 0x40))
-            makerAsset := mload(add(signature, 0x60))
-            takerAsset := mload(add(signature, 0x80))
-            makerAssetData := add(add(signature, 0x40), mload(add(signature, 0xA0)))
-            takerAssetData := add(add(signature, 0x40), mload(add(signature, 0xC0)))
-            _getMakerAmount := add(add(signature, 0x40), mload(add(signature, 0xE0)))
-            _getTakerAmount := add(add(signature, 0x40), mload(add(signature, 0x100)))
-            predicate := add(add(signature, 0x40), mload(add(signature, 0x120)))
-            permit := add(add(signature, 0x40), mload(add(signature, 0x140)))
-            interaction := add(add(signature, 0x40), mload(add(signature, 0x160)))
+            makerAssetData := add(add(signature, 64), mload(add(signature, 320)))
+            takerAssetData := add(add(signature, 64), mload(add(signature, 352)))
+            _getMakerAmount := add(add(signature, 64), mload(add(signature, 384)))
+            _getTakerAmount := add(add(signature, 64), mload(add(signature, 416)))
+            predicate := add(add(signature, 64), mload(add(signature, 448)))
+            permit := add(add(signature, 64), mload(add(signature, 480)))
+            interaction := add(add(signature, 64), mload(add(signature, 512)))
         }
 
         require(
-            _hash(salt, makerAsset, takerAsset, makerAssetData, takerAssetData, _getMakerAmount, _getTakerAmount, predicate, permit, interaction) == hash,
-            "bad order"
+            hashOrder(staticOrder, makerAssetData, takerAssetData, _getMakerAmount, _getTakerAmount, predicate, permit, interaction) == hash,
+            "Liquidator: bad order"
         );
 
         return this.isValidSignature.selector;
     }
 
-    /// @notice Calculates maker amount based on taker amount and current makerAsset and takerAsset prices
-    /// @return Result Floored maker amount
-//    function getMakerAmount(uint256 orderTakerAmount, uint256 orderTakerAmountThreshold, address debtAsset, address collateralAsset, uint collateralBonus, uint debtReserveDecimals, uint collateralReserveDecimals, uint256 swapTakerAmount) external view returns (uint256) {
-////        require(swapTakerAmount >= orderTakerAmountThreshold, 'Liquidator: taker amount should be above threshold');
-////        if (swapTakerAmount < orderTakerAmountThreshold) {
-////            return 0;
-////        }
-//        return swapTakerAmount * _calculateCollateralAmountAfterLiquidation(orderTakerAmount, debtAsset, collateralAsset, collateralBonus, debtReserveDecimals, collateralReserveDecimals) / orderTakerAmount;
-//    }
+    function getHashFromSignature(bytes memory signature) external view returns (bytes32) {
+        StaticOrder memory staticOrder = readStaticOrder(signature);
 
-    function getMakerAmount(uint256 orderMakerAmount, uint256 orderTakerAmount, uint256 swapTakerAmount) external view returns(uint256) {
-        console.log('Computing getMakerAmount in Liquidator');
-        console.log('swapTakerAmount', swapTakerAmount);
-        console.log('orderMakerAmount', orderMakerAmount);
-        console.log('orderTakerAmount', orderTakerAmount);
-        return swapTakerAmount * orderMakerAmount / orderTakerAmount;
+        bytes memory makerAssetData;
+        bytes memory takerAssetData;
+        bytes memory _getMakerAmount;
+        bytes memory _getTakerAmount;
+        bytes memory predicate;
+        bytes memory permit;
+        bytes memory interaction;
+
+        assembly {// solhint-disable-line no-inline-assembly
+            makerAssetData := add(add(signature, 64), mload(add(signature, 320)))
+            takerAssetData := add(add(signature, 64), mload(add(signature, 352)))
+            _getMakerAmount := add(add(signature, 64), mload(add(signature, 384)))
+            _getTakerAmount := add(add(signature, 64), mload(add(signature, 416)))
+            predicate := add(add(signature, 64), mload(add(signature, 448)))
+            permit := add(add(signature, 64), mload(add(signature, 480)))
+            interaction := add(add(signature, 64), mload(add(signature, 512)))
+        }
+
+        return hashOrder(staticOrder, makerAssetData, takerAssetData, _getMakerAmount, _getTakerAmount, predicate, permit, interaction);
     }
 
+    function readSignature(bytes memory signature) external pure returns (uint256) {
+        StaticOrder memory staticOrder = readStaticOrder(signature);
 
-//    function getTakerAmount(uint256 orderTakerAmount, uint256 orderTakerAmountThreshold, address debtAsset, address collateralAsset, uint collateralBonus, uint debtReserveDecimals, uint collateralReserveDecimals, uint256 swapMakerAmount) external view returns (uint256) {
-//        console.log('getTakerAmount executed');
-//        uint256 orderMakerAmount = _calculateCollateralAmountAfterLiquidation(orderTakerAmount, debtAsset, collateralAsset, collateralBonus, debtReserveDecimals, collateralReserveDecimals);
-//        uint256 swapTakerAmount = (swapMakerAmount * orderTakerAmount + orderMakerAmount - 1) / orderMakerAmount;
-//
-//        require(swapTakerAmount >= orderTakerAmountThreshold, 'Liquidator: taker amount should be above threshold');
-//
-//        return swapTakerAmount;
-//    }
+        bytes memory makerAssetData;
+        bytes memory takerAssetData;
+        bytes memory _getMakerAmount;
+        bytes memory _getTakerAmount;
+        bytes memory predicate;
+        bytes memory permit;
+        bytes memory interaction;
+
+        assembly {// solhint-disable-line no-inline-assembly
+            makerAssetData := add(add(signature, 64), mload(add(signature, 320)))
+            takerAssetData := add(add(signature, 64), mload(add(signature, 352)))
+            _getMakerAmount := add(add(signature, 64), mload(add(signature, 384)))
+            _getTakerAmount := add(add(signature, 64), mload(add(signature, 416)))
+            predicate := add(add(signature, 64), mload(add(signature, 448)))
+            permit := add(add(signature, 64), mload(add(signature, 480)))
+            interaction := add(add(signature, 64), mload(add(signature, 512)))
+        }
+
+        return staticOrder.takingAmount;
+    }
+
+    function readStaticOrder(bytes memory signature) public pure returns (StaticOrder memory) {
+        StaticOrder memory staticOrder;
+        uint256 salt;
+        address makerAsset;
+        address takerAsset;
+        address maker;
+        address receiver;
+        address allowedSender;  // equals to Zero address on public orders
+        uint256 makingAmount;
+        uint256 takingAmount;
+
+        assembly {// solhint-disable-line no-inline-assembly
+            salt := mload(add(signature, 64))
+            makerAsset := mload(add(signature, 96))
+            takerAsset := mload(add(signature, 128))
+            maker := mload(add(signature, 160))
+            receiver := mload(add(signature, 192))
+            allowedSender := mload(add(signature, 224))
+            makingAmount := mload(add(signature, 256))
+            takingAmount := mload(add(signature, 288))
+        }
+
+        staticOrder.salt = salt;
+        staticOrder.makerAsset = makerAsset;
+        staticOrder.takerAsset = takerAsset;
+        staticOrder.maker = maker;
+        staticOrder.receiver = receiver;
+        staticOrder.allowedSender = allowedSender;
+        staticOrder.makingAmount = makingAmount;
+        staticOrder.takingAmount = takingAmount;
+
+        return staticOrder;
+    }
+
+    /// @notice Calculates maker amount based on taker amount and current makerAsset and takerAsset prices
+    /// @return Result Floored maker amount
+    function getMakerAmount(uint256 orderTakerAmount, uint256 orderTakerAmountThreshold, address debtAsset, address collateralAsset, uint collateralBonus, uint debtReserveDecimals, uint collateralReserveDecimals, uint256 swapTakerAmount) external view returns (uint256) {
+        require(swapTakerAmount >= orderTakerAmountThreshold, 'Liquidator: taker amount should be above threshold');
+        return swapTakerAmount * _calculateCollateralAmountAfterLiquidation(orderTakerAmount, debtAsset, collateralAsset, collateralBonus, debtReserveDecimals, collateralReserveDecimals) / orderTakerAmount;
+    }
+
+    //    function getMakerAmount(uint256 orderMakerAmount, uint256 orderTakerAmount, uint256 swapTakerAmount) external view returns(uint256) {
+    //        console.log('Computing getMakerAmount in Liquidator');
+    //        console.log('swapTakerAmount', swapTakerAmount);
+    //        console.log('orderMakerAmount', orderMakerAmount);
+    //        console.log('orderTakerAmount', orderTakerAmount);
+    //        return swapTakerAmount * orderMakerAmount / orderTakerAmount;
+    //    }
+
+
+    //    function getTakerAmount(uint256 orderTakerAmount, uint256 orderTakerAmountThreshold, address debtAsset, address collateralAsset, uint collateralBonus, uint debtReserveDecimals, uint collateralReserveDecimals, uint256 swapMakerAmount) external view returns (uint256) {
+    //        console.log('getTakerAmount executed');
+    //        uint256 orderMakerAmount = _calculateCollateralAmountAfterLiquidation(orderTakerAmount, debtAsset, collateralAsset, collateralBonus, debtReserveDecimals, collateralReserveDecimals);
+    //        uint256 swapTakerAmount = (swapMakerAmount * orderTakerAmount + orderMakerAmount - 1) / orderMakerAmount;
+    //
+    //        require(swapTakerAmount >= orderTakerAmountThreshold, 'Liquidator: taker amount should be above threshold');
+    //
+    //        return swapTakerAmount;
+    //    }
 
     function _calculateCollateralAmountAfterLiquidation(uint256 debtAmount, address debtAsset, address collateralAsset, uint collateralBonus, uint debtReserveDecimals, uint collateralReserveDecimals) private view returns (uint256) {
         uint256 debtAssetPriceETH = AAVE_ORACLE.getAssetPrice(debtAsset);
@@ -187,7 +253,7 @@ contract Liquidator is LimitOrderProtocolBase, AaveBase, Ownable {
     }
 
     function _calculateRawCollateralAmount(uint256 debtAmount, uint256 debtAssetPriceETH, uint256 collateralAssetPriceETH, uint collateralReserveDecimals, uint debtReserveDecimals) private pure returns (uint256) {
-      return _updateCountingDecimals(debtAmount.mul(debtAssetPriceETH), collateralReserveDecimals, debtReserveDecimals).div(collateralAssetPriceETH);
+        return _updateCountingDecimals(debtAmount.mul(debtAssetPriceETH), collateralReserveDecimals, debtReserveDecimals).div(collateralAssetPriceETH);
     }
 
     function _updateCountingDecimals(uint256 value, uint collateralReserveDecimals, uint debtReserveDecimals) private pure returns (uint256) {

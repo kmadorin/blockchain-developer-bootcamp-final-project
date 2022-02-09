@@ -1,13 +1,21 @@
 require('@nomiclabs/hardhat-truffle5');
-// require('hardhat-deploy');
+require('solidity-coverage');
+require('hardhat-deploy');
 require('hardhat-gas-reporter');
 require('dotenv').config();
+const networks = require('./hardhat.networks');
+
+networks.hardhat = {
+	forking: {
+		url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
+	},
+}
 
 module.exports = {
 	solidity: {
 		compilers: [
 			{
-				version: '0.8.4',
+				version: '0.8.11',
 				settings: {
 					optimizer: {
 						enabled: true,
@@ -21,30 +29,11 @@ module.exports = {
 		enable: true,
 		currency: 'USD',
 	},
-	chainId: 1,
-	networks: {
-		localhost: {
-			chainId: 1,
-			url: 'http://localhost:8545',
-			/*
-			  notice no mnemonic here? it will just use account 0 of the hardhat node to deploy
-			  (you can put in a mnemonic here to set the deployer locally)
-			*/
+	networks: networks,
+	namedAccounts: {
+		deployer: {
+			default: 0,
 		},
-		// hardhat: {
-		// 	forking: {
-		// 		url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_API_KEY}`,
-		// 		// blockNumber: 13679712,
-		// 	},
-		// },
-		polygon: {
-			url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
-		},
-		hardhat: {
-			forking: {
-				url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
-			}
-		}
 	},
 	paths: {
 		tests: './hardhat_tests',

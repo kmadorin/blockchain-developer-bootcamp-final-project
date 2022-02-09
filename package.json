@@ -8,6 +8,7 @@
   },
   "scripts": {
     "compile": "hardhat compile",
+    "deploy": "hardhat deploy --network",
     "test": "hardhat test",
     "test:truffle": "truffle test ./test/inchi.test.js --network development",
     "ganache:fork": "node ./test/utils/test-chain.js",
@@ -37,15 +38,17 @@
     "ethers": "^5.4.7",
     "ganache-cli": "^6.12.2",
     "ganache-core": "^2.13.2",
-    "hardhat": "^2.6.8",
-    "hardhat-deploy": "^0.9.10",
+    "hardhat": "^2.8.3",
+    "hardhat-deploy": "^0.9.29",
     "hardhat-gas-reporter": "^1.0.4",
     "isomorphic-fetch": "^3.0.0",
     "jest": "^27.3.1",
+    "solidity-coverage": "^0.7.18",
     "truffle": "^5.4.22"
   },
   "dependencies": {
     "@aave/protocol-v2": "^1.0.1",
+    "@chainlink/contracts": "^0.3.1",
     "@openzeppelin/contracts": "^4.4.2",
     "@truffle/hdwallet-provider": "^1.7.0",
     "@uniswap/sdk": "^3.0.3",

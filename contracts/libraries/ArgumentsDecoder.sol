@@ -1,36 +1,44 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity 0.8.11;
+pragma abicoder v1;
 
-
+/// @title Library with gas efficient alternatives to `abi.decode`
 library ArgumentsDecoder {
-    function decodeSelector(bytes memory data) internal pure returns(bytes4 selector) {
+    function decodeUint256(bytes memory data) internal pure returns(uint256) {
+        uint256 value;
         assembly { // solhint-disable-line no-inline-assembly
-            selector := mload(add(data, 0x20))
+            value := mload(add(data, 0x20))
         }
+        return value;
     }
 
-    function decodeAddress(bytes memory data, uint256 argumentIndex) internal pure returns(address account) {
+    function decodeBool(bytes memory data) internal pure returns(bool) {
+        bool value;
         assembly { // solhint-disable-line no-inline-assembly
-            account := mload(add(add(data, 0x24), mul(argumentIndex, 0x20)))
+            value := eq(mload(add(data, 0x20)), 1)
         }
+        return value;
     }
 
-    function decodeUint256(bytes memory data, uint256 argumentIndex) internal pure returns(uint256 value) {
-        assembly { // solhint-disable-line no-inline-assembly
-            value := mload(add(add(data, 0x24), mul(argumentIndex, 0x20)))
+    function decodeTargetAndCalldata(bytes memory data) internal pure returns(address, bytes memory) {
+        address target;
+        bytes memory args;
+        assembly {  // solhint-disable-line no-inline-assembly
+            target := mload(add(data, 0x14))
+            args := add(data, 0x14)
+            mstore(args, sub(mload(data), 0x14))
         }
+        return (target, args);
     }
 
-    function patchAddress(bytes memory data, uint256 argumentIndex, address account) internal pure {
-        assembly { // solhint-disable-line no-inline-assembly
-            mstore(add(add(data, 0x24), mul(argumentIndex, 0x20)), account)
+    function decodeTargetAndData(bytes calldata data) internal pure returns(address, bytes calldata) {
+        address target;
+        bytes calldata args;
+        assembly {  // solhint-disable-line no-inline-assembly
+            target := shr(96, calldataload(data.offset))
         }
-    }
-
-    function patchUint256(bytes memory data, uint256 argumentIndex, uint256 value) internal pure {
-        assembly { // solhint-disable-line no-inline-assembly
-            mstore(add(add(data, 0x24), mul(argumentIndex, 0x20)), value)
-        }
+        args = data[20:];
+        return (target, args);
     }
 }
