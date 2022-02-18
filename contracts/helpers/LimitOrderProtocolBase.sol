@@ -4,13 +4,14 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../libraries/ArgumentsDecoder.sol";
 import "../interfaces/InteractiveNotificationReceiver.sol";
 import "./EIP712Alien.sol";
 import "hardhat/console.sol";
 
-abstract contract LimitOrderProtocolBase is InteractiveNotificationReceiver, EIP712Alien {
+abstract contract LimitOrderProtocolBase is IERC1271, InteractiveNotificationReceiver, EIP712Alien {
     // Fixed-size order part with core information
     struct StaticOrder {
         uint256 salt;
@@ -52,6 +53,10 @@ abstract contract LimitOrderProtocolBase is InteractiveNotificationReceiver, EIP
     constructor(address _limitOrderProtocol)
     EIP712Alien(_limitOrderProtocol, "1inch Limit Order Protocol", "2") {
         LIMIT_ORDER_PROTOCOL = _limitOrderProtocol;
+    }
+
+    function DOMAIN_SEPARATOR() external view returns(bytes32) {
+        return _domainSeparatorV4();
     }
 
     function _toUint256(bytes memory _bytes) internal pure returns (uint256 value) {

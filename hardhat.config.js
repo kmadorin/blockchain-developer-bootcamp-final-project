@@ -11,6 +11,12 @@ networks.hardhat = {
 	},
 }
 
+// networks.hardhat = {
+// 	forking: {
+// 		url: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.POLYGON_ALCHEMY_API_KEY}`
+// 	},
+// }
+
 module.exports = {
 	solidity: {
 		compilers: [

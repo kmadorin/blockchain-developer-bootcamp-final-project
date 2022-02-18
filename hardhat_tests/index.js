@@ -14,8 +14,12 @@ const IProtocolDataProvider = artifacts.require('IProtocolDataProvider');
 
 const ILimitOrderProtocol = artifacts.require('ILimitOrderProtocol');
 const IWETH = artifacts.require('IWETH');
+const DSProxyCache = artifacts.require('DSProxyCache');
+const DSGuard = artifacts.require('DSGuard');
+const SmartWallet = artifacts.require('SmartWallet');
 
 const Liquidator = artifacts.require('Liquidator');
+const SimpleContract = artifacts.require('SimpleContract');
 
 const LendingPoolAddressesProvider = require("@aave/protocol-v2/artifacts/contracts/protocol/configuration/LendingPoolAddressesProvider.sol/LendingPoolAddressesProvider.json");
 const LendingPool = require("@aave/protocol-v2/artifacts/contracts/protocol/lendingpool/LendingPool.sol/LendingPool.json");
@@ -72,8 +76,9 @@ contract('Inchi', async function ([wallet, _]) {
 			UNI: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
 		},
 		polygon: {
-			WETH: '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619',
+			WMATIC: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
 			DAI: '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063',
+			USDC: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
 		}
 	};
 
@@ -127,135 +132,54 @@ contract('Inchi', async function ([wallet, _]) {
 	}
 
 	beforeEach(async function () {
+		this.simpleContract = await SimpleContract.new(aaveLendingPoolAddressProvider, aaveOracle);
+		this.dsproxyCache = await DSProxyCache.new();
+		this.dsguard = await DSGuard.new();
+
 		// this.swap = await ILimitOrderProtocol.at(limitOrderProtocol);
-		this.swap = await LimitOrderProtocol.at(CONTRACTS_ADDRESSES[network]['limitOrderProtocolAddressV2']);
-		// this.swap = await LimitOrderProtocol.new();
+		// this.swap = await LimitOrderProtocol.at(CONTRACTS_ADDRESSES[network]['limitOrderProtocolAddressV2']);
+		this.swap = await LimitOrderProtocol.new();
 		// this.liquidator = await Liquidator.new(this.swap.address, aaveLendingPoolAddressProvider, aaveOracle);
-		this.liquidator = await Liquidator.at(CONTRACTS_ADDRESSES[network]['Liquidator']);
-		this.MockAggregator = await MockAggregator.new('10000');
+		// this.liquidator = await Liquidator.at(CONTRACTS_ADDRESSES[network]['Liquidator']);
+		// this.MockAggregator = await MockAggregator.new('10000');
+		this.smartwallet = await SmartWallet.new(this.dsproxyCache.address, this.swap.address);
 
 		this.protocolDataProvider = await IProtocolDataProvider.at(aaveProtocolDataProviderAddress);
 		this.lendingPoolAddressProvider = new web3.eth.Contract(LendingPoolAddressesProvider.abi, aaveLendingPoolAddressProvider);
 		const lendingPoolAddress = await this.lendingPoolAddressProvider.methods.getLendingPool().call();
 
 		this.lendingPool = new web3.eth.Contract(LendingPool.abi, lendingPoolAddress);
-		this.aaveOracle = new web3.eth.Contract(AaveOracle.abi, aaveOracle);
+		// this.aaveOracle = new web3.eth.Contract(AaveOracle.abi, aaveOracle);
 
-		this.weth = await IWETH.at(ASSET_ADDRESSES[network].WETH);
+		(network !== "polygon") && (this.weth = await IWETH.at(ASSET_ADDRESSES[network].WETH));
+		(network === "polygon") && (this.wmatic = await IWETH.at(ASSET_ADDRESSES[network].WMATIC));
 		this.dai = await TokenMock.at(ASSET_ADDRESSES[network].DAI);
 
-		this.usdc = await TokenMock.new('USDC', 'USDC');
-
-		// We get the chain id from the contract because Ganache (used for coverage) does not return the same chain id
-		// from within the EVM as from the JSON RPC interface.
-		// See https://github.com/trufflesuite/ganache-core/issues/515
-		this.chainId = await this.usdc.getChainId()
+		this.usdc = await TokenMock.at(ASSET_ADDRESSES[network].USDC);
 	});
 
-	describe('liquidate()', function () {
-		it('should liquidate unhealthy Aave position', async function () {
-			// const unhealthyLoans = await fetchV2UnhealthyLoans();
-			// // const USDCLoans = unhealthyLoans.filter(loan => loan.maxBorrowSymbol === "USDC").sort((a, b) => a.healthFactor - b.healthFactor);
-			// const USDCLoans = unhealthyLoans.sort((a, b) => a.healthFactor - b.healthFactor);
-			//
-			// const rawReservesData = await getRawReservesData();
+	describe('Smart Wallet', function () {
+		// it('should execute arbitrary function via SmartWallet', async function () {
+		// 	const accountsToImpersonate = {
+		// 		mainnet: '0x7e0188b0312a26ffe64b7e43a7a91d430fb20673',
+		// 		polygon: '0xab5167e8cc36a3a91fd2d75c6147140cd1837355'
+		// 	}
+		// 	const accountToImpersonate = accountsToImpersonate[network];
+		//
+		// 	await hre.network.provider.send("hardhat_impersonateAccount", [accountToImpersonate]);
+		// 	await web3.eth.sendTransaction({to: accountToImpersonate, from: wallet, value: ether('6')});
+		//
+		//
+		// 	//send 1000 usdc to wallet
+		// 	await this.usdc.transfer(this.smartwallet.address, 1000000000, {from: accountToImpersonate});
+		//
+		// 	const calldata = this.simpleContract.contract.methods.deposit(ASSET_ADDRESSES[network].USDC, 1000000000).encodeABI();
+		// 	await this.smartwallet.contract.methods['execute(address,bytes)'](this.simpleContract.address, calldata).send({from: wallet});
+		//
+		// 	return true;
+		// });
 
-			// const gasEstimate = 683485;
-			const gasEstimate = 91559;
-			const estimatedGasPrice = await web3.eth.getGasPrice();
-			const estimatedOrderFillPrice = (new BN(estimatedGasPrice)).mul(new BN(gasEstimate));
-
-			// const loansChecking = USDCLoans.map(async (loan) => {
-			// 	loan.profitable = false;
-			// 	const rawUserReservesData = await getUserReservesData(loan.userAddress, rawReservesData);
-			// 	const userSummary = await getUserSummary(loan.userAddress, rawReservesData, rawUserReservesData);
-			//
-			// 	const collateralReserve = userSummary.reservesData.find(item => item.reserve.symbol === loan.maxCollateralSymbol);
-			// 	const borrowReserve = userSummary.reservesData.find(item => item.reserve.symbol === loan.maxBorrowSymbol);
-			// 	loan.maxBorrowAmountOld = loan.maxBorrowAmount;
-			// 	loan.maxBorrowAmount = borrowReserve.totalBorrows.replace('.', '').replace(/^0+/, '');
-			// 	loan.maxCollateralAmountOld = loan.maxCollateralAmount;
-			// 	loan.maxCollateralAmount = collateralReserve.underlyingBalance.replace('.', '').replace(/^0+/, '');
-			// 	loan.maxCollateralAmountETH = web3.utils.toWei(collateralReserve.underlyingBalanceETH, 'ether');
-			// 	loan.maxBorrowAmountETH = web3.utils.toWei(borrowReserve.totalBorrowsETH, 'ether');
-			// 	loan.maxCollateralReserve = collateralReserve;
-			// 	loan.maxBorrowReserve = borrowReserve;
-			//
-			// 	const userData = await this.lendingPool.methods.getUserAccountData(loan.userAddress).call();
-			// 	// console.log(`###: userData.healthFactor`, userData.healthFactor);
-			// 	loan.healthFactor = web3.utils.fromWei(userData.healthFactor, 'ether');
-			//
-			// 	loan.estimatedLiquidationBonusETH = new BN(loan.maxBorrowAmountETH).divn(2).muln(+loan.maxCollateralBonus - 10000).divn(10000)
-			//
-			// 	if (loan.estimatedLiquidationBonusETH.gt(estimatedOrderFillPrice)) {
-			// 		loan.profitable = true;
-			// 	}
-			//
-			// 	return loan;
-			// });
-			//
-			//
-			// const all_loans = await Promise.all(loansChecking);
-			// const profitable_loans = all_loans.filter(loan => loan.profitable).sort((a, b) => (new BN(a.maxBorrowAmountETH)).gt((new BN(b.maxBorrowAmountETH)) ? 1 : -1));
-			// const all_loans_sorted_by_debt = all_loans.filter(loan => loan.healthFactor < 1).sort((a, b) => {
-			// 	if (new BN(b.maxBorrowAmountETH).gt(new BN(a.maxBorrowAmountETH))) {
-			// 		console.log('gt');
-			// 		return 1
-			// 	} else {
-			// 		console.log('lt');
-			// 		return -1;
-			// 	}
-			// });
-			// console.log(`###: all_loans_sorted_by_debt`, all_loans_sorted_by_debt.map(loan => loan.maxBorrowAmountETH));
-			//
-			// if (profitable_loans.length === 0) {
-			// 	console.log('there are no profitable loans')
-			// 	return false;
-			// }
-
-			// console.log(`###: all_loans`, all_loans.length);
-
-			// const loan = profitable_loans[0];
-			// const loan = all_loans_sorted_by_debt[0];
-
-			const loan = {
-				userAddress: '0xede4d8b7b6d29fa5b6ee9b2b8f5f3eb92d24e09b',
-				healthFactor: '0.836972130457837487',
-				debtToCover: '78463',
-				debtTokenAddress: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
-				debtTokenDecimals: 6,
-				collateralAmount: '44398973538026309',
-				collateralTokenAddress: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
-				collateralTokenDecimals: 18,
-				collateralBonus: 10800,
-				liquidationBonus: '4439897353802630',
-				liquidationBonusETH: '2791807456071',
-				collateralTokenSymbol: 'WMATIC',
-				debtTokenSymbol: 'USDC'
-			};
-
-
-			// const userData = await this.lendingPool.methods.getUserAccountData(loan.userAddress).call();
-			//
-			// const dataCollateral = await this.protocolDataProvider.getUserReserveData(loan.collateralTokenAddress, loan.userAddress);
-			// const dataBorrow = await this.protocolDataProvider.getUserReserveData(loan.debtTokenAddress, loan.userAddress);
-			//
-			// loan.healthFactor = userData.healthFactor;
-			// loan.maxCollateralAmount = dataCollateral.currentATokenBalance;
-			// loan.maxBorrowAmount = dataBorrow.currentStableDebt.add(dataBorrow.currentVariableDebt);
-			//
-			// loan.debtToCover = (loan.maxBorrowAmount).divn(2);
-			// loan.collateralTokenPriceInETH = await this.aaveOracle.methods.getAssetPrice(loan.collateralTokenAddress).call();
-			// loan.borrowTokenPriceInETH = await this.aaveOracle.methods.getAssetPrice(loan.debtTokenAddress).call();
-			//
-			// // collateral amount that will be received after the liquidation
-			// // doesn't include bonus
-			// loan.collateralAmount = loan.debtToCover.mul(new BN(loan.borrowTokenPriceInETH)).div(new BN('10').pow(new BN(loan.maxBorrowReserve.reserve.decimals))).mul(new BN('10').pow(new BN(loan.maxCollateralReserve.reserve.decimals))).div(new BN(loan.collateralTokenPriceInETH)).muln(+loan.maxCollateralBonus).divn(10000);
-			// loan.liquidationBonus = loan.collateralAmount.muln(loan.maxCollateralBonus - 10000).divn(10000);
-			// loan.liquidationBonusETH = loan.liquidationBonus.mul(new BN(loan.collateralTokenPriceInETH)).div(new BN(10).pow(new BN(loan.maxCollateralReserve.reserve.decimals)));
-
-			const debtTokenContract = await TokenMock.at(loan.debtTokenAddress);
-			const collateralTokenContract = await TokenMock.at(loan.collateralTokenAddress);
+		it('shoulde create limit order from SmartWallet', async function () {
 			const accountsToImpersonate = {
 				mainnet: '0x7e0188b0312a26ffe64b7e43a7a91d430fb20673',
 				polygon: '0xab5167e8cc36a3a91fd2d75c6147140cd1837355'
@@ -263,141 +187,290 @@ contract('Inchi', async function ([wallet, _]) {
 			const accountToImpersonate = accountsToImpersonate[network];
 
 			await hre.network.provider.send("hardhat_impersonateAccount", [accountToImpersonate]);
-			await hre.network.provider.send("hardhat_impersonateAccount", [contractOwnerAddress]);
-
-			await web3.eth.sendTransaction({to: contractOwnerAddress, from: wallet, value: ether('6')});
-
 			await web3.eth.sendTransaction({to: accountToImpersonate, from: wallet, value: ether('6')});
 
+			await this.wmatic.deposit({from: wallet, value: ether('2')});
+			//send 1000 usdc to wallet
+			await this.usdc.transfer(this.smartwallet.address, 1000000000, {from: accountToImpersonate});
 
-			await debtTokenContract.transfer(wallet, loan.debtToCover, {from: accountToImpersonate});
-
-			//----
-			// const debtTokenBalanceAfterTransfer = await debtTokenContract.balanceOf(wallet);
-			// await debtTokenContract.approve(this.lendingPool._address, loan.debtToCover, {from: wallet});
-			// const ethBalanceBefore = await web3.eth.getBalance(wallet);
-			// const collateralTokenBalanceBefore = await collateralTokenContract.balanceOf(wallet);
-			// console.log(`###: collateralTokenBalanceBefore`, collateralTokenBalanceBefore);
-			// console.log('\n ------\n Position info: \n --------')
-			// console.log(`###: User's address`, loan.userAddress);
-			// // console.log(`###: health factor:`, web3.utils.fromWei(loan.healthFactor, 'ether'));
-			// console.log(`###: collateral token symbol: `, loan.maxCollateralSymbol);
-			// // console.log(`###: collateral token amount: `, loan.maxCollateralAmount.toString());
-			// console.log(`###: liquidation bonus:`, loan.liquidationBonus.toString());
-			// console.log(`###: liquidation bonus ETH: `, loan.liquidationBonusETH)
-			// console.log(`###: debt token symbol: `, loan.maxBorrowSymbol);
-			// // console.log(`###: debt token amount: `, loan.maxBorrowAmount.toString());
-			//
-			// console.log('\n ------ Amounts for the liquidation: \n ----');
-			// console.log(`###: debtToCover`, loan.debtToCover.toString());
-			// console.log(`###: collateralAmount`, loan.collateralAmount.toString());
-			//
-			// const liquidationCall = await this.lendingPool.methods.liquidationCall(loan.collateralTokenAddress, loan.debtTokenAddress, loan.userAddress, loan.debtToCover, false).send({from: wallet});
-			// const collateralTokenBalanceAfter = await collateralTokenContract.balanceOf(wallet);
-			// const ethBalanceAfter = await web3.eth.getBalance(wallet);
-			//
-			// const debtTokenBalanceAfterLiquidation = await debtTokenContract.balanceOf(wallet);
-			//
-			// console.log('------\n Amounts after the liquidation: \n-------');
-			// console.log(`###: debtToken spent during the liquidation`, (new BN(debtTokenBalanceAfterTransfer)).sub(new BN(debtTokenBalanceAfterLiquidation)).toString());
-			// console.log('###: collateralToken received after the liquidation', collateralTokenBalanceAfter.sub(collateralTokenBalanceBefore).toString());
-			// console.log('###: expected collateral token amount after the liquidation', loan.collateralAmount.toString());
-			//
-			// console.log(`###: gas fees:`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
-			// const collateralAmount = await this.liquidator.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, loan.debtToCover);
-			// console.log(`###: collateralAmount`, collateralAmount.toString());
-			// const takerAmount = await this.liquidator.getTakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, loan.collateralAmount);
-			// console.log(`###: debtAmount`, takerAmount.toString());
-
-			//-----
-			const isHFBelowThresholdCall = this.liquidator.contract.methods.isHFBelowThreshold(loan.userAddress, WAD).encodeABI();
-			const isHFBelowThreshold = await this.liquidator.isHFBelowThreshold(loan.userAddress, WAD);
-			console.log(`###: isHFBelowThreshold`, isHFBelowThreshold);
-			const predicate = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address, isHFBelowThresholdCall).encodeABI();
-
-			// const predicate = '0x';
-			const order = buildOrder(this.swap, collateralTokenContract, debtTokenContract, loan.collateralAmount, loan.debtToCover, this.liquidator.address, zeroAddress, predicate);
-			order.getMakerAmount = cutLastArg(
-				this.swap.contract.methods.arbitraryStaticCall(
-					this.liquidator.address,
-					this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, 0).encodeABI()
-				).encodeABI(),
-				56
-			);
-
-			order.getTakerAmount = '0x';
-
-			order.interaction = this.liquidator.address + loan.userAddress.slice(2);
-
+			const order = buildOrder(this.swap, this.usdc, this.wmatic, 1, 1, this.smartwallet.address);
+			// const calldata = this.simpleContract.contract.methods.deposit(ASSET_ADDRESSES[network].USDC, 1000000000).encodeABI();
+			const calldata = this.simpleContract.contract.methods.approveAndSayHello(this.usdc.address, 11, this.swap.address).encodeABI();
+			order.interaction = this.smartwallet.address + this.simpleContract.address.slice(2) + calldata.slice(2);
 			const signature = web3.eth.abi.encodeParameter(ABIOrder, order);
-			const orderHash = await this.swap.hashOrder(order);
+			await this.wmatic.approve(this.swap.address, 1, {from: wallet});
 
-			console.log(`###: orderHash`, orderHash);
-			const orderToSend = {
-				orderHash,
-				signature,
-				data: {
-					makerAsset: order.makerAsset,
-					takerAsset: order.takerAsset,
-					maker: order.maker,
-					allowedSender: order.allowedSender,
-					receiver: order.receiver,
-					makingAmount: order.makingAmount,
-					takingAmount: order.takingAmount,
-					makerAssetData: order.makerAssetData,
-					takerAssetData: order.takerAssetData,
-					getMakerAmount: order.getMakerAmount,
-					getTakerAmount: order.getTakerAmount,
-					salt: order.salt,
-					predicate: order.predicate,
-					permit: order.permit,
-					interaction: order.interaction
-				}
+			await this.smartwallet.setAuthorityByAddress(this.dsguard.address);
+			const ANY = await this.dsguard.ANY();
+			await this.dsguard.permit(this.swap.address, ANY, ANY);
+
+			console.log(`###: wallet`, wallet);
+			console.log(`###: this.simpleContract.address`, this.simpleContract.address);
+			console.log(`###: this.smartwallet.address`, this.smartwallet.address);
+			console.log(`###: this.swap.address`, this.swap.address);
+			try {
+				// fill order
+				const userDataBefore = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
+				console.log(`###: userDataBefore`, userDataBefore);
+				const receipt = await this.swap.fillOrder(order, signature, 0, 1, 1, {
+					from: wallet,
+				});
+
+				const userDataAfter = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
+				console.log(`###: userDataAfter`, userDataAfter);
+			} catch (e) {
+				console.log(e);
 			}
-
-			console.log(`###: orderToSend`, JSON.stringify(orderToSend, null, 2));
-
-
-			// //approve takerAmount by taker
-			// await debtTokenContract.approve(this.swap.address, loan.debtToCover, {from: wallet});
-			// const ethBalanceBefore = await web3.eth.getBalance(wallet);
-			// console.log(`###: ethBalanceBefore`, ethBalanceBefore);
-			// const balanceBefore = await collateralTokenContract.balanceOf(wallet);
-			// console.log(`###: balanceBefore`, balanceBefore.toString());
-			// await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: contractOwnerAddress});
-			// await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: contractOwnerAddress});
-			// // await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: wallet});
-			// // await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: wallet});
-			//
-			// // try to fill the order
-			// try {
-			// 	// fill order
-			// 	// const receipt = await this.swap.fillOrder(order, signature, 0, debtToCover, debtToCover, {from: wallet, gasPrice: web3.utils.toWei('168', 'gwei')});
-			// 	const receipt = await this.swap.fillOrder(order, signature, 0, loan.debtToCover, 1000, {
-			// 		from: wallet,
-			// 		gasPrice: estimatedGasPrice
-			// 	});
-			// 	const gasUsed = receipt.receipt.gasUsed;
-			// 	console.log(`###: receipt.receipt.gasUsed`, gasUsed);
-			// 	const tx = await web3.eth.getTransaction(receipt.tx);
-			// 	const gasPrice = tx.gasPrice;
-			// 	console.log(`###: gasPrice`, gasPrice);
-			// 	console.log('###: txPrice:', web3.utils.fromWei((new BN(gasPrice)).mul(new BN(gasUsed)).toString(), 'ether'));
-			// } catch (e) {
-			// 	console.log(e);
-			// }
-			//
-			// const balanceAfter = await collateralTokenContract.balanceOf(wallet);
-			// console.log(`###: balanceAfter`, balanceAfter.toString());
-			// const liquidationBonus = await collateralTokenContract.balanceOf(this.liquidator.address);
-			// console.log(`###: liquidationBonus`, liquidationBonus.toString());
-			// const ethBalanceAfter = await web3.eth.getBalance(wallet);
-			// console.log(`###: ethBalanceAfter`, ethBalanceAfter);
-			// console.log(`###: ethDelta`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
 
 			return true;
 		});
-	})
+	});
+	// describe('liquidate()', function () {
+	// 	it('should liquidate unhealthy Aave position', async function () {
+	// 		// const unhealthyLoans = await fetchV2UnhealthyLoans();
+	// 		// // const USDCLoans = unhealthyLoans.filter(loan => loan.maxBorrowSymbol === "USDC").sort((a, b) => a.healthFactor - b.healthFactor);
+	// 		// const USDCLoans = unhealthyLoans.sort((a, b) => a.healthFactor - b.healthFactor);
+	// 		//
+	// 		// const rawReservesData = await getRawReservesData();
+	//
+	// 		// const gasEstimate = 683485;
+	// 		const gasEstimate = 91559;
+	// 		const estimatedGasPrice = await web3.eth.getGasPrice();
+	// 		const estimatedOrderFillPrice = (new BN(estimatedGasPrice)).mul(new BN(gasEstimate));
+	//
+	// 		// const loansChecking = USDCLoans.map(async (loan) => {
+	// 		// 	loan.profitable = false;
+	// 		// 	const rawUserReservesData = await getUserReservesData(loan.userAddress, rawReservesData);
+	// 		// 	const userSummary = await getUserSummary(loan.userAddress, rawReservesData, rawUserReservesData);
+	// 		//
+	// 		// 	const collateralReserve = userSummary.reservesData.find(item => item.reserve.symbol === loan.maxCollateralSymbol);
+	// 		// 	const borrowReserve = userSummary.reservesData.find(item => item.reserve.symbol === loan.maxBorrowSymbol);
+	// 		// 	loan.maxBorrowAmountOld = loan.maxBorrowAmount;
+	// 		// 	loan.maxBorrowAmount = borrowReserve.totalBorrows.replace('.', '').replace(/^0+/, '');
+	// 		// 	loan.maxCollateralAmountOld = loan.maxCollateralAmount;
+	// 		// 	loan.maxCollateralAmount = collateralReserve.underlyingBalance.replace('.', '').replace(/^0+/, '');
+	// 		// 	loan.maxCollateralAmountETH = web3.utils.toWei(collateralReserve.underlyingBalanceETH, 'ether');
+	// 		// 	loan.maxBorrowAmountETH = web3.utils.toWei(borrowReserve.totalBorrowsETH, 'ether');
+	// 		// 	loan.maxCollateralReserve = collateralReserve;
+	// 		// 	loan.maxBorrowReserve = borrowReserve;
+	// 		//
+	// 		// 	const userData = await this.lendingPool.methods.getUserAccountData(loan.userAddress).call();
+	// 		// 	// console.log(`###: userData.healthFactor`, userData.healthFactor);
+	// 		// 	loan.healthFactor = web3.utils.fromWei(userData.healthFactor, 'ether');
+	// 		//
+	// 		// 	loan.estimatedLiquidationBonusETH = new BN(loan.maxBorrowAmountETH).divn(2).muln(+loan.maxCollateralBonus - 10000).divn(10000)
+	// 		//
+	// 		// 	if (loan.estimatedLiquidationBonusETH.gt(estimatedOrderFillPrice)) {
+	// 		// 		loan.profitable = true;
+	// 		// 	}
+	// 		//
+	// 		// 	return loan;
+	// 		// });
+	// 		//
+	// 		//
+	// 		// const all_loans = await Promise.all(loansChecking);
+	// 		// const profitable_loans = all_loans.filter(loan => loan.profitable).sort((a, b) => (new BN(a.maxBorrowAmountETH)).gt((new BN(b.maxBorrowAmountETH)) ? 1 : -1));
+	// 		// const all_loans_sorted_by_debt = all_loans.filter(loan => loan.healthFactor < 1).sort((a, b) => {
+	// 		// 	if (new BN(b.maxBorrowAmountETH).gt(new BN(a.maxBorrowAmountETH))) {
+	// 		// 		console.log('gt');
+	// 		// 		return 1
+	// 		// 	} else {
+	// 		// 		console.log('lt');
+	// 		// 		return -1;
+	// 		// 	}
+	// 		// });
+	// 		// console.log(`###: all_loans_sorted_by_debt`, all_loans_sorted_by_debt.map(loan => loan.maxBorrowAmountETH));
+	// 		//
+	// 		// if (profitable_loans.length === 0) {
+	// 		// 	console.log('there are no profitable loans')
+	// 		// 	return false;
+	// 		// }
+	//
+	// 		// console.log(`###: all_loans`, all_loans.length);
+	//
+	// 		// const loan = profitable_loans[0];
+	// 		// const loan = all_loans_sorted_by_debt[0];
+	//
+	// 		const loan = {
+	// 			userAddress: '0xede4d8b7b6d29fa5b6ee9b2b8f5f3eb92d24e09b',
+	// 			healthFactor: '0.836972130457837487',
+	// 			debtToCover: '78463',
+	// 			debtTokenAddress: '0x2791bca1f2de4661ed88a30c99a7a9449aa84174',
+	// 			debtTokenDecimals: 6,
+	// 			collateralAmount: '44398973538026309',
+	// 			collateralTokenAddress: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270',
+	// 			collateralTokenDecimals: 18,
+	// 			collateralBonus: 10800,
+	// 			liquidationBonus: '4439897353802630',
+	// 			liquidationBonusETH: '2791807456071',
+	// 			collateralTokenSymbol: 'WMATIC',
+	// 			debtTokenSymbol: 'USDC'
+	// 		};
+	//
+	//
+	// 		// const userData = await this.lendingPool.methods.getUserAccountData(loan.userAddress).call();
+	// 		//
+	// 		// const dataCollateral = await this.protocolDataProvider.getUserReserveData(loan.collateralTokenAddress, loan.userAddress);
+	// 		// const dataBorrow = await this.protocolDataProvider.getUserReserveData(loan.debtTokenAddress, loan.userAddress);
+	// 		//
+	// 		// loan.healthFactor = userData.healthFactor;
+	// 		// loan.maxCollateralAmount = dataCollateral.currentATokenBalance;
+	// 		// loan.maxBorrowAmount = dataBorrow.currentStableDebt.add(dataBorrow.currentVariableDebt);
+	// 		//
+	// 		// loan.debtToCover = (loan.maxBorrowAmount).divn(2);
+	// 		// loan.collateralTokenPriceInETH = await this.aaveOracle.methods.getAssetPrice(loan.collateralTokenAddress).call();
+	// 		// loan.borrowTokenPriceInETH = await this.aaveOracle.methods.getAssetPrice(loan.debtTokenAddress).call();
+	// 		//
+	// 		// // collateral amount that will be received after the liquidation
+	// 		// // doesn't include bonus
+	// 		// loan.collateralAmount = loan.debtToCover.mul(new BN(loan.borrowTokenPriceInETH)).div(new BN('10').pow(new BN(loan.maxBorrowReserve.reserve.decimals))).mul(new BN('10').pow(new BN(loan.maxCollateralReserve.reserve.decimals))).div(new BN(loan.collateralTokenPriceInETH)).muln(+loan.maxCollateralBonus).divn(10000);
+	// 		// loan.liquidationBonus = loan.collateralAmount.muln(loan.maxCollateralBonus - 10000).divn(10000);
+	// 		// loan.liquidationBonusETH = loan.liquidationBonus.mul(new BN(loan.collateralTokenPriceInETH)).div(new BN(10).pow(new BN(loan.maxCollateralReserve.reserve.decimals)));
+	//
+	// 		const debtTokenContract = await TokenMock.at(loan.debtTokenAddress);
+	// 		const collateralTokenContract = await TokenMock.at(loan.collateralTokenAddress);
+	// 		const accountsToImpersonate = {
+	// 			mainnet: '0x7e0188b0312a26ffe64b7e43a7a91d430fb20673',
+	// 			polygon: '0xab5167e8cc36a3a91fd2d75c6147140cd1837355'
+	// 		}
+	// 		const accountToImpersonate = accountsToImpersonate[network];
+	//
+	// 		await hre.network.provider.send("hardhat_impersonateAccount", [accountToImpersonate]);
+	// 		await hre.network.provider.send("hardhat_impersonateAccount", [contractOwnerAddress]);
+	//
+	// 		await web3.eth.sendTransaction({to: contractOwnerAddress, from: wallet, value: ether('6')});
+	//
+	// 		await web3.eth.sendTransaction({to: accountToImpersonate, from: wallet, value: ether('6')});
+	//
+	//
+	// 		await debtTokenContract.transfer(wallet, loan.debtToCover, {from: accountToImpersonate});
+	//
+	// 		//----
+	// 		// const debtTokenBalanceAfterTransfer = await debtTokenContract.balanceOf(wallet);
+	// 		// await debtTokenContract.approve(this.lendingPool._address, loan.debtToCover, {from: wallet});
+	// 		// const ethBalanceBefore = await web3.eth.getBalance(wallet);
+	// 		// const collateralTokenBalanceBefore = await collateralTokenContract.balanceOf(wallet);
+	// 		// console.log(`###: collateralTokenBalanceBefore`, collateralTokenBalanceBefore);
+	// 		// console.log('\n ------\n Position info: \n --------')
+	// 		// console.log(`###: User's address`, loan.userAddress);
+	// 		// // console.log(`###: health factor:`, web3.utils.fromWei(loan.healthFactor, 'ether'));
+	// 		// console.log(`###: collateral token symbol: `, loan.maxCollateralSymbol);
+	// 		// // console.log(`###: collateral token amount: `, loan.maxCollateralAmount.toString());
+	// 		// console.log(`###: liquidation bonus:`, loan.liquidationBonus.toString());
+	// 		// console.log(`###: liquidation bonus ETH: `, loan.liquidationBonusETH)
+	// 		// console.log(`###: debt token symbol: `, loan.maxBorrowSymbol);
+	// 		// // console.log(`###: debt token amount: `, loan.maxBorrowAmount.toString());
+	// 		//
+	// 		// console.log('\n ------ Amounts for the liquidation: \n ----');
+	// 		// console.log(`###: debtToCover`, loan.debtToCover.toString());
+	// 		// console.log(`###: collateralAmount`, loan.collateralAmount.toString());
+	// 		//
+	// 		// const liquidationCall = await this.lendingPool.methods.liquidationCall(loan.collateralTokenAddress, loan.debtTokenAddress, loan.userAddress, loan.debtToCover, false).send({from: wallet});
+	// 		// const collateralTokenBalanceAfter = await collateralTokenContract.balanceOf(wallet);
+	// 		// const ethBalanceAfter = await web3.eth.getBalance(wallet);
+	// 		//
+	// 		// const debtTokenBalanceAfterLiquidation = await debtTokenContract.balanceOf(wallet);
+	// 		//
+	// 		// console.log('------\n Amounts after the liquidation: \n-------');
+	// 		// console.log(`###: debtToken spent during the liquidation`, (new BN(debtTokenBalanceAfterTransfer)).sub(new BN(debtTokenBalanceAfterLiquidation)).toString());
+	// 		// console.log('###: collateralToken received after the liquidation', collateralTokenBalanceAfter.sub(collateralTokenBalanceBefore).toString());
+	// 		// console.log('###: expected collateral token amount after the liquidation', loan.collateralAmount.toString());
+	// 		//
+	// 		// console.log(`###: gas fees:`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
+	// 		// const collateralAmount = await this.liquidator.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, loan.debtToCover);
+	// 		// console.log(`###: collateralAmount`, collateralAmount.toString());
+	// 		// const takerAmount = await this.liquidator.getTakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, loan.collateralAmount);
+	// 		// console.log(`###: debtAmount`, takerAmount.toString());
+	//
+	// 		//-----
+	// 		const isHFBelowThresholdCall = this.liquidator.contract.methods.isHFBelowThreshold(loan.userAddress, WAD).encodeABI();
+	// 		const isHFBelowThreshold = await this.liquidator.isHFBelowThreshold(loan.userAddress, WAD);
+	// 		console.log(`###: isHFBelowThreshold`, isHFBelowThreshold);
+	// 		const predicate = this.swap.contract.methods.arbitraryStaticCall(this.liquidator.address, isHFBelowThresholdCall).encodeABI();
+	//
+	// 		// const predicate = '0x';
+	// 		const order = buildOrder(this.swap, collateralTokenContract, debtTokenContract, loan.collateralAmount, loan.debtToCover, this.liquidator.address, zeroAddress, predicate);
+	// 		order.getMakerAmount = cutLastArg(
+	// 			this.swap.contract.methods.arbitraryStaticCall(
+	// 				this.liquidator.address,
+	// 				this.liquidator.contract.methods.getMakerAmount(loan.debtToCover, loan.debtToCover, loan.debtTokenAddress, loan.collateralTokenAddress, loan.collateralBonus, loan.debtTokenDecimals, loan.collateralTokenDecimals, 0).encodeABI()
+	// 			).encodeABI(),
+	// 			56
+	// 		);
+	//
+	// 		order.getTakerAmount = '0x';
+	//
+	// 		order.interaction = this.liquidator.address + loan.userAddress.slice(2);
+	//
+	// 		const signature = web3.eth.abi.encodeParameter(ABIOrder, order);
+	// 		const orderHash = await this.swap.hashOrder(order);
+	//
+	// 		console.log(`###: orderHash`, orderHash);
+	// 		const orderToSend = {
+	// 			orderHash,
+	// 			signature,
+	// 			data: {
+	// 				makerAsset: order.makerAsset,
+	// 				takerAsset: order.takerAsset,
+	// 				maker: order.maker,
+	// 				allowedSender: order.allowedSender,
+	// 				receiver: order.receiver,
+	// 				makingAmount: order.makingAmount,
+	// 				takingAmount: order.takingAmount,
+	// 				makerAssetData: order.makerAssetData,
+	// 				takerAssetData: order.takerAssetData,
+	// 				getMakerAmount: order.getMakerAmount,
+	// 				getTakerAmount: order.getTakerAmount,
+	// 				salt: order.salt,
+	// 				predicate: order.predicate,
+	// 				permit: order.permit,
+	// 				interaction: order.interaction
+	// 			}
+	// 		}
+	//
+	// 		console.log(`###: orderToSend`, JSON.stringify(orderToSend, null, 2));
+	//
+	//
+	// 		// //approve takerAmount by taker
+	// 		// await debtTokenContract.approve(this.swap.address, loan.debtToCover, {from: wallet});
+	// 		// const ethBalanceBefore = await web3.eth.getBalance(wallet);
+	// 		// console.log(`###: ethBalanceBefore`, ethBalanceBefore);
+	// 		// const balanceBefore = await collateralTokenContract.balanceOf(wallet);
+	// 		// console.log(`###: balanceBefore`, balanceBefore.toString());
+	// 		// await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: contractOwnerAddress});
+	// 		// await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: contractOwnerAddress});
+	// 		// // await this.liquidator.approveMax(loan.debtTokenAddress, this.lendingPool._address, {from: wallet});
+	// 		// // await this.liquidator.approveMax(loan.collateralTokenAddress, this.swap.address, {from: wallet});
+	// 		//
+	// 		// // try to fill the order
+	// 		// try {
+	// 		// 	// fill order
+	// 		// 	// const receipt = await this.swap.fillOrder(order, signature, 0, debtToCover, debtToCover, {from: wallet, gasPrice: web3.utils.toWei('168', 'gwei')});
+	// 		// 	const receipt = await this.swap.fillOrder(order, signature, 0, loan.debtToCover, 1000, {
+	// 		// 		from: wallet,
+	// 		// 		gasPrice: estimatedGasPrice
+	// 		// 	});
+	// 		// 	const gasUsed = receipt.receipt.gasUsed;
+	// 		// 	console.log(`###: receipt.receipt.gasUsed`, gasUsed);
+	// 		// 	const tx = await web3.eth.getTransaction(receipt.tx);
+	// 		// 	const gasPrice = tx.gasPrice;
+	// 		// 	console.log(`###: gasPrice`, gasPrice);
+	// 		// 	console.log('###: txPrice:', web3.utils.fromWei((new BN(gasPrice)).mul(new BN(gasUsed)).toString(), 'ether'));
+	// 		// } catch (e) {
+	// 		// 	console.log(e);
+	// 		// }
+	// 		//
+	// 		// const balanceAfter = await collateralTokenContract.balanceOf(wallet);
+	// 		// console.log(`###: balanceAfter`, balanceAfter.toString());
+	// 		// const liquidationBonus = await collateralTokenContract.balanceOf(this.liquidator.address);
+	// 		// console.log(`###: liquidationBonus`, liquidationBonus.toString());
+	// 		// const ethBalanceAfter = await web3.eth.getBalance(wallet);
+	// 		// console.log(`###: ethBalanceAfter`, ethBalanceAfter);
+	// 		// console.log(`###: ethDelta`, web3.utils.fromWei((new BN(ethBalanceBefore)).sub(new BN(ethBalanceAfter)), 'ether').toString());
+	//
+	// 		return true;
+	// 	});
+	// })
 
 	// describe('setFee()', function() {
 	//   it('should set fee by the owner', async function() {
