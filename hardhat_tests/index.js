@@ -15,6 +15,8 @@ const IProtocolDataProvider = artifacts.require('IProtocolDataProvider');
 const ILimitOrderProtocol = artifacts.require('ILimitOrderProtocol');
 const IWETH = artifacts.require('IWETH');
 const DSProxyCache = artifacts.require('DSProxyCache');
+const DSProxyFactory = artifacts.require('DSProxyFactory');
+const DSProxyRegistry = artifacts.require('DSProxyRegistry');
 const DSGuard = artifacts.require('DSGuard');
 const SmartWallet = artifacts.require('SmartWallet');
 
@@ -32,9 +34,9 @@ const {fetchV2UnhealthyLoans, getUserSummary, getRawReservesData, getUserReserve
 
 
 contract('Inchi', async function ([wallet, _]) {
-	const privateKey = process.env.POLYGON_PRIVATE_KEY;
-	const contractOwner = web3.eth.accounts.privateKeyToAccount(privateKey);
-	const contractOwnerAddress = contractOwner.address;
+	// const privateKey = process.env.POLYGON_PRIVATE_KEY;
+	// const contractOwner = web3.eth.accounts.privateKeyToAccount(privateKey);
+	// const contractOwnerAddress = contractOwner.address;
 
 	const CONTRACTS_ADDRESSES = {
 		mainnet: {
@@ -133,16 +135,21 @@ contract('Inchi', async function ([wallet, _]) {
 
 	beforeEach(async function () {
 		this.simpleContract = await SimpleContract.new(aaveLendingPoolAddressProvider, aaveOracle);
-		this.dsproxyCache = await DSProxyCache.new();
-		this.dsguard = await DSGuard.new();
 
 		// this.swap = await ILimitOrderProtocol.at(limitOrderProtocol);
 		// this.swap = await LimitOrderProtocol.at(CONTRACTS_ADDRESSES[network]['limitOrderProtocolAddressV2']);
+
 		this.swap = await LimitOrderProtocol.new();
 		// this.liquidator = await Liquidator.new(this.swap.address, aaveLendingPoolAddressProvider, aaveOracle);
 		// this.liquidator = await Liquidator.at(CONTRACTS_ADDRESSES[network]['Liquidator']);
+		// this.smartwallet = await SmartWallet.new(this.dsproxyCache.address, this.swap.address);
 		// this.MockAggregator = await MockAggregator.new('10000');
-		this.smartwallet = await SmartWallet.new(this.dsproxyCache.address, this.swap.address);
+		this.dsproxyFactory = await DSProxyFactory.new(this.swap.address);
+		this.dsproxyRegistry = await DSProxyRegistry.new(this.dsproxyFactory.address);
+		this.dsguard = await DSGuard.new();
+		await this.dsproxyRegistry.build({from: wallet});
+		const smartWalletAddress = await this.dsproxyRegistry.wallets(wallet);
+		this.smartwallet = await SmartWallet.at(smartWalletAddress);
 
 		this.protocolDataProvider = await IProtocolDataProvider.at(aaveProtocolDataProviderAddress);
 		this.lendingPoolAddressProvider = new web3.eth.Contract(LendingPoolAddressesProvider.abi, aaveLendingPoolAddressProvider);
@@ -210,14 +217,14 @@ contract('Inchi', async function ([wallet, _]) {
 			console.log(`###: this.swap.address`, this.swap.address);
 			try {
 				// fill order
-				const userDataBefore = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
-				console.log(`###: userDataBefore`, userDataBefore);
+				// const userDataBefore = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
+				// console.log(`###: userDataBefore`, userDataBefore);
 				const receipt = await this.swap.fillOrder(order, signature, 0, 1, 1, {
 					from: wallet,
 				});
 
-				const userDataAfter = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
-				console.log(`###: userDataAfter`, userDataAfter);
+				// const userDataAfter = await this.lendingPool.methods.getUserAccountData(this.smartwallet.address).call();
+				// console.log(`###: userDataAfter`, userDataAfter);
 			} catch (e) {
 				console.log(e);
 			}

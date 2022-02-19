@@ -30,7 +30,7 @@ contract SmartWallet is DSProxy, LimitOrderProtocolBase {
         address _target;
         bytes memory _calldata;
 
-        IERC20(makerAsset).approve(msg.sender, 1);
+//        IERC20(makerAsset).approve(msg.sender, 1);
         (_target, _calldata) = interactiveData.decodeTargetAndCalldata();
         _target.call(_calldata);
 //        execute(_target, _calldata);
